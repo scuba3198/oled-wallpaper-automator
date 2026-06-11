@@ -125,9 +125,7 @@ fn get_wallpaper_links() -> Result<Vec<String>> {
     let document = Html::parse_document(&body);
     let pagination_selector = Selector::parse(".pagination a").map_err(|_| anyhow!("Invalid pagination selector"))?;
     
-    let pagination_links: Vec<_> = document.select(&pagination_selector).collect();
-    let max_pages = if pagination_links.len() >= 2 {
-        let second_to_last = pagination_links[pagination_links.len() - 2];
+    let max_pages = if let Some(second_to_last) = document.select(&pagination_selector).rev().nth(1) {
         let text = second_to_last.text().collect::<String>();
         text.trim().parse::<u32>().unwrap_or(40)
     } else {
@@ -151,22 +149,23 @@ fn get_wallpaper_links() -> Result<Vec<String>> {
     let page_document = Html::parse_document(&page_body);
     let img_selector = Selector::parse("a[href*=\"/images/wallpapers/\"]").map_err(|_| anyhow!("Invalid image selector"))?;
     
-    let mut links = Vec::new();
-    for element in page_document.select(&img_selector) {
-        if let Some(href) = element.value().attr("href") {
-            let mut full_url = href.to_string();
-            if full_url.starts_with('/') {
-                full_url = format!("https://4kwallpapers.com{full_url}");
+    let links: Vec<String> = page_document
+        .select(&img_selector)
+        .filter_map(|element| element.value().attr("href"))
+        .map(|href| {
+            if href.starts_with('/') {
+                format!("https://4kwallpapers.com{href}")
+            } else {
+                href.to_string()
             }
-            links.push(full_url);
-        }
-    }
+        })
+        .collect();
 
     if links.is_empty() {
         return Err(anyhow!("No wallpaper links found on page {random_page}"));
     }
 
-    println!("Found {} wallpapers on page {}", links.len(), random_page);
+    println!("Found {} wallpapers on page {random_page}", links.len());
     Ok(links)
 }
 
