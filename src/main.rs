@@ -19,7 +19,8 @@ const RETRY_DELAY: Duration = Duration::from_mins(1);
 const MAX_HISTORY: usize = 50;
 
 fn main() {
-    // Initialize COM library on the current thread
+    // SAFETY: The COM library must be initialized on the current thread before executing COM operations.
+    // We ignore the error result in case the COM library is already initialized on this thread.
     unsafe {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
     }
@@ -202,6 +203,8 @@ fn download_and_set_wallpaper(url: &str, wallpaper_dir: &Path) -> Result<()> {
     let file_path_str = file_path.to_str().ok_or_else(|| anyhow!("Invalid path encoding"))?;
     let path_hstring = HSTRING::from(file_path_str);
 
+    // SAFETY: COM must be initialized on this thread (guaranteed by main).
+    // CoCreateInstance and interface methods are safe if given valid parameters.
     unsafe {
         // Create the IDesktopWallpaper instance
         let wallpaper_mgr: IDesktopWallpaper = CoCreateInstance(&DesktopWallpaper, None, CLSCTX_ALL)
