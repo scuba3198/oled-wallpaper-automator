@@ -1,0 +1,18 @@
+[package]
+name = "oled-wallpaper-automator"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+reqwest = { version = "0.11", features = ["blocking"] }
+scraper = "0.18"
+windows = { version = "0.48.0", features = ["Win32_UI_Shell", "Win32_System_Com"] }
+rand = "0.8"
+anyhow = "1.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
