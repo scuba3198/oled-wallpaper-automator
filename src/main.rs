@@ -85,10 +85,7 @@ fn run() -> Result<()> {
     download_and_set_wallpaper(&selected_url, &wallpaper_dir)?;
 
     // 6. Update history
-    history.push(selected_url);
-    if history.len() > MAX_HISTORY {
-        history.remove(0);
-    }
+    add_to_history(&mut history, selected_url, MAX_HISTORY);
     save_history(&history_path, &history)?;
 
     Ok(())
@@ -111,6 +108,14 @@ fn save_history(path: &Path, history: &[String]) -> Result<()> {
     let content = history.join("\n");
     fs::write(path, content).context("Failed to write history file")?;
     Ok(())
+}
+
+// Helper function to update the history list and enforce the maximum size limit.
+fn add_to_history(history: &mut Vec<String>, url: String, max_history: usize) {
+    history.push(url);
+    if history.len() > max_history {
+        history.remove(0);
+    }
 }
 
 fn get_wallpaper_links() -> Result<Vec<String>> {
@@ -229,15 +234,16 @@ mod tests {
     use tempfile::NamedTempFile;
 
     #[test]
-    fn load_history_should_return_empty_when_file_not_found() {
+    fn load_history_should_return_empty_when_file_not_found() -> Result<()> {
         let path = Path::new("non_existent_file_xyz_123.txt");
-        let history = load_history(path).unwrap();
+        let history = load_history(path)?;
         assert!(history.is_empty(), "Expected empty history list");
+        Ok(())
     }
 
     #[test]
-    fn save_and_load_history_should_persist_and_retrieve_correctly() {
-        let temp_file = NamedTempFile::new().unwrap();
+    fn save_and_load_history_should_persist_and_retrieve_correctly() -> Result<()> {
+        let temp_file = NamedTempFile::new()?;
         let path = temp_file.path();
         
         let original_history = vec![
@@ -245,9 +251,36 @@ mod tests {
             "https://example.com/2.png".to_string(),
         ];
         
-        save_history(path, &original_history).unwrap();
-        let loaded = load_history(path).unwrap();
+        save_history(path, &original_history)?;
+        let loaded = load_history(path)?;
         
         assert_eq!(loaded, original_history, "Loaded history does not match saved history");
+        Ok(())
+    }
+
+    #[test]
+    fn add_to_history_should_truncate_when_exceeding_max_limit() {
+        let mut history = vec![
+            "1.png".to_string(),
+            "2.png".to_string(),
+            "3.png".to_string(),
+        ];
+        add_to_history(&mut history, "4.png".to_string(), 3);
+        
+        assert_eq!(history.len(), 3);
+        assert_eq!(history, vec!["2.png".to_string(), "3.png".to_string(), "4.png".to_string()]);
+    }
+
+    #[test]
+    fn load_history_should_trim_and_filter_empty_lines() -> Result<()> {
+        let temp_file = NamedTempFile::new()?;
+        let path = temp_file.path();
+        
+        // Write raw history with extra spacing and empty lines
+        fs::write(path, "  url1.png  \n\n  url2.png\n")?;
+        let loaded = load_history(path)?;
+        
+        assert_eq!(loaded, vec!["url1.png".to_string(), "url2.png".to_string()]);
+        Ok(())
     }
 }
