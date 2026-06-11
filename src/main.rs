@@ -7,6 +7,7 @@ use std::time::Duration;
 // external crates
 use anyhow::{anyhow, Context, Result};
 use rand::seq::SliceRandom;
+use rand::Rng;
 use scraper::{Html, Selector};
 use windows::core::HSTRING;
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED};
@@ -62,20 +63,19 @@ fn run() -> Result<()> {
     let links = get_wallpaper_links()?;
     
     // 4. Filter links using history
-    let filtered_links: Vec<String> = links
-        .iter()
-        .filter(|link| !history.contains(link))
-        .cloned()
-        .collect();
+    let selected_url = {
+        let mut rng = rand::thread_rng();
+        let filtered_links: Vec<&String> = links
+            .iter()
+            .filter(|link| !history.contains(*link))
+            .collect();
 
-    // Select wallpaper URL
-    let selected_url = if filtered_links.is_empty() {
-        println!("All scraped wallpapers are in history. Selecting a random one anyway.");
-        let mut rng = rand::thread_rng();
-        links.choose(&mut rng).context("No wallpaper links found at all")?.clone()
-    } else {
-        let mut rng = rand::thread_rng();
-        filtered_links.choose(&mut rng).unwrap().clone()
+        if let Some(&link) = filtered_links.choose(&mut rng) {
+            link.clone()
+        } else {
+            println!("All scraped wallpapers are in history. Selecting a random one anyway.");
+            links.choose(&mut rng).context("No wallpaper links found at all")?.clone()
+        }
     };
 
     println!("Successfully selected wallpaper: {selected_url}");
@@ -127,14 +127,14 @@ fn get_wallpaper_links() -> Result<Vec<String>> {
     
     let max_pages = if let Some(second_to_last) = document.select(&pagination_selector).rev().nth(1) {
         let text = second_to_last.text().collect::<String>();
-        text.trim().parse::<u32>().unwrap_or(40)
+        text.trim().parse::<u32>().unwrap_or(40).max(1)
     } else {
         40
     };
     println!("Detected max pages: {max_pages}");
 
     let mut rng = rand::thread_rng();
-    let random_page = rand::Rng::gen_range(&mut rng, 1..=max_pages);
+    let random_page = rng.gen_range(1..=max_pages);
     
     let page_url = if random_page == 1 {
         BASE_URL.to_string()
