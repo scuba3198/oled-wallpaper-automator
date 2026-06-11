@@ -114,7 +114,8 @@ fn save_history(path: &Path, history: &[String]) -> Result<()> {
 fn add_to_history(history: &mut Vec<String>, url: String, max_history: usize) {
     history.push(url);
     if history.len() > max_history {
-        history.remove(0);
+        let excess = history.len() - max_history;
+        history.drain(0..excess);
     }
 }
 
@@ -235,8 +236,9 @@ mod tests {
 
     #[test]
     fn load_history_should_return_empty_when_file_not_found() -> Result<()> {
-        let path = Path::new("non_existent_file_xyz_123.txt");
-        let history = load_history(path)?;
+        let temp_dir = tempfile::tempdir()?;
+        let path = temp_dir.path().join("non_existent_file_xyz_123.txt");
+        let history = load_history(&path)?;
         assert!(history.is_empty(), "Expected empty history list");
         Ok(())
     }
