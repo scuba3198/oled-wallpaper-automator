@@ -1,35 +1,37 @@
+// std
 use std::fs;
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
-use anyhow::{Context, Result, anyhow};
+
+// external crates
+use anyhow::{anyhow, Context, Result};
 use rand::seq::SliceRandom;
 use scraper::{Html, Selector};
-
 use windows::core::HSTRING;
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED};
 use windows::Win32::UI::Shell::{DesktopWallpaper, IDesktopWallpaper, DWPOS_SPAN};
 
 const BASE_URL: &str = "https://4kwallpapers.com/oled-wallpapers/";
 const MAX_RETRIES: u32 = 3;
-const RETRY_DELAY: Duration = Duration::from_secs(60);
+const RETRY_DELAY: Duration = Duration::from_mins(1);
 const MAX_HISTORY: usize = 50;
 
-fn main() -> Result<()> {
+fn main() {
     // Initialize COM library on the current thread
     unsafe {
         let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
     }
 
     for attempt in 1..=MAX_RETRIES {
-        println!("--- OLED Wallpaper Automator Start (Attempt {}/{}) ---", attempt, MAX_RETRIES);
+        println!("--- OLED Wallpaper Automator Start (Attempt {attempt}/{MAX_RETRIES}) ---");
         match run() {
             Ok(()) => {
                 println!("--- OLED Wallpaper Automator Finished ---");
-                return Ok(());
+                return;
             }
             Err(e) => {
-                eprintln!("Attempt {} failed: {}", attempt, e);
+                eprintln!("Attempt {attempt} failed: {e}");
                 if attempt < MAX_RETRIES {
                     println!("Retrying in {} seconds...", RETRY_DELAY.as_secs());
                     thread::sleep(RETRY_DELAY);
@@ -40,7 +42,6 @@ fn main() -> Result<()> {
             }
         }
     }
-    Ok(())
 }
 
 fn run() -> Result<()> {
@@ -68,22 +69,22 @@ fn run() -> Result<()> {
         .collect();
 
     // Select wallpaper URL
-    let selected_url = if !filtered_links.is_empty() {
-        let mut rng = rand::thread_rng();
-        filtered_links.choose(&mut rng).unwrap().clone()
-    } else {
+    let selected_url = if filtered_links.is_empty() {
         println!("All scraped wallpapers are in history. Selecting a random one anyway.");
         let mut rng = rand::thread_rng();
         links.choose(&mut rng).context("No wallpaper links found at all")?.clone()
+    } else {
+        let mut rng = rand::thread_rng();
+        filtered_links.choose(&mut rng).unwrap().clone()
     };
 
-    println!("Successfully selected wallpaper: {}", selected_url);
+    println!("Successfully selected wallpaper: {selected_url}");
 
     // 5. Download and set wallpaper
     download_and_set_wallpaper(&selected_url, &wallpaper_dir)?;
 
     // 6. Update history
-    history.push(selected_url.clone());
+    history.push(selected_url);
     if history.len() > MAX_HISTORY {
         history.remove(0);
     }
@@ -117,7 +118,7 @@ fn get_wallpaper_links() -> Result<Vec<String>> {
         .build()
         .context("Failed to build HTTP client")?;
 
-    println!("Accessing {}...", BASE_URL);
+    println!("Accessing {BASE_URL}...");
     let resp = client.get(BASE_URL).send().context("Failed to send initial request")?;
     let body = resp.text().context("Failed to read initial response body")?;
     
@@ -132,7 +133,7 @@ fn get_wallpaper_links() -> Result<Vec<String>> {
     } else {
         40
     };
-    println!("Detected max pages: {}", max_pages);
+    println!("Detected max pages: {max_pages}");
 
     let mut rng = rand::thread_rng();
     let random_page = rand::Rng::gen_range(&mut rng, 1..=max_pages);
@@ -140,9 +141,9 @@ fn get_wallpaper_links() -> Result<Vec<String>> {
     let page_url = if random_page == 1 {
         BASE_URL.to_string()
     } else {
-        format!("{}?page={}", BASE_URL, random_page)
+        format!("{BASE_URL}?page={random_page}")
     };
-    println!("Fetching random page: {}", page_url);
+    println!("Fetching random page: {page_url}");
 
     let page_resp = client.get(&page_url).send().context("Failed to fetch page")?;
     let page_body = page_resp.text().context("Failed to read page body")?;
@@ -155,14 +156,14 @@ fn get_wallpaper_links() -> Result<Vec<String>> {
         if let Some(href) = element.value().attr("href") {
             let mut full_url = href.to_string();
             if full_url.starts_with('/') {
-                full_url = format!("https://4kwallpapers.com{}", full_url);
+                full_url = format!("https://4kwallpapers.com{full_url}");
             }
             links.push(full_url);
         }
     }
 
     if links.is_empty() {
-        return Err(anyhow!("No wallpaper links found on page {}", random_page));
+        return Err(anyhow!("No wallpaper links found on page {random_page}"));
     }
 
     println!("Found {} wallpapers on page {}", links.len(), random_page);
@@ -183,13 +184,13 @@ fn download_and_set_wallpaper(url: &str, wallpaper_dir: &Path) -> Result<()> {
         }
     }
 
-    let file_name = url.split('/').last().unwrap_or("wallpaper.png");
+    let file_name = url.split('/').next_back().unwrap_or("wallpaper.png");
     let file_path = wallpaper_dir.join(file_name);
 
-    println!("Downloading wallpaper to {:?}...", file_path);
+    println!("Downloading wallpaper to {}...", file_path.display());
 
     let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(60))
+        .timeout(Duration::from_mins(1))
         .build()
         .context("Failed to build download HTTP client")?;
 
@@ -205,15 +206,15 @@ fn download_and_set_wallpaper(url: &str, wallpaper_dir: &Path) -> Result<()> {
     unsafe {
         // Create the IDesktopWallpaper instance
         let wallpaper_mgr: IDesktopWallpaper = CoCreateInstance(&DesktopWallpaper, None, CLSCTX_ALL)
-            .map_err(|e| anyhow!("Failed to create DesktopWallpaper COM instance: {}", e))?;
+            .map_err(|e| anyhow!("Failed to create DesktopWallpaper COM instance: {e}"))?;
 
         // Set the wallpaper style to Span
         wallpaper_mgr.SetPosition(DWPOS_SPAN)
-            .map_err(|e| anyhow!("Failed to set wallpaper style to Span: {}", e))?;
+            .map_err(|e| anyhow!("Failed to set wallpaper style to Span: {e}"))?;
 
         // Set the wallpaper path (None sets it for all monitors)
         wallpaper_mgr.SetWallpaper(None, &path_hstring)
-            .map_err(|e| anyhow!("Failed to set wallpaper: {}", e))?;
+            .map_err(|e| anyhow!("Failed to set wallpaper: {e}"))?;
     }
 
     println!("Wallpaper set successfully.");

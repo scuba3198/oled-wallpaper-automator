@@ -19,7 +19,7 @@ strip = true
 
 [lints.rust]
 future-incompatible = "warn"
-nonstandard_style = "deny"
+nonstandard_style = { level = "deny", priority = -1 }
 
 [lints.clippy]
 all = { level = "deny", priority = 10 }
