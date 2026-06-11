@@ -222,3 +222,32 @@ fn download_and_set_wallpaper(url: &str, wallpaper_dir: &Path) -> Result<()> {
     println!("Wallpaper set successfully.");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn load_history_should_return_empty_when_file_not_found() {
+        let path = Path::new("non_existent_file_xyz_123.txt");
+        let history = load_history(path).unwrap();
+        assert!(history.is_empty(), "Expected empty history list");
+    }
+
+    #[test]
+    fn save_and_load_history_should_persist_and_retrieve_correctly() {
+        let temp_file = NamedTempFile::new().unwrap();
+        let path = temp_file.path();
+        
+        let original_history = vec![
+            "https://example.com/1.png".to_string(),
+            "https://example.com/2.png".to_string(),
+        ];
+        
+        save_history(path, &original_history).unwrap();
+        let loaded = load_history(path).unwrap();
+        
+        assert_eq!(loaded, original_history, "Loaded history does not match saved history");
+    }
+}
