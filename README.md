@@ -1,74 +1,42 @@
-# 🌌 OLED Wallpaper Automator
+# OLED Wallpaper Automator
 
-A lightweight, automated Windows utility written in Rust to keep your desktop fresh with high-resolution, OLED-optimized wallpapers scraped daily from [4kwallpapers.com](https://4kwallpapers.com/oled-wallpapers/).
+A lightweight Windows utility written in **Rust** that automatically downloads high‑resolution, OLED‑optimized wallpapers from [4kwallpapers.com](https://4kwallpapers.com/oled-wallpapers/) and sets them as your desktop background.
 
----
+## Features
+- **OLED‑Optimized** – Retrieves only wallpapers from the OLED category for better contrast on self‑emissive displays.
+- **Random Variety** – Randomly selects a page and wallpaper each run.
+- **History Tracking** – Stores the last 50 wallpaper URLs in `.wallpaper_history` to avoid repeats.
+- **Clean Storage** – Removes previously downloaded files from the `wallpapers/` folder before saving a new one.
+- **Multi‑Monitor Support** – Uses the Windows `IDesktopWallpaper` COM interface with *Span* scaling to cover all monitors.
+- **Network Resilience** – Retries up to three times with a 60‑second delay on failure.
+- **Task Scheduler Integration** – Includes a PowerShell script to schedule a daily refresh.
+- **Rust Best‑Practice Ready** – Crate‑level documentation, `#![deny(missing_docs)]`, and passes `cargo clippy -- -D warnings` with no warnings.
 
-## ✨ Features
+## Quick Start (Plug‑and‑Play)
+1. **Place the project** somewhere permanent, e.g. `C:\\Users\\YourUsername\\Projects\\oled-wallpaper-automator`.
+2. **Schedule the daily refresh** by running `setup-task.ps1` with PowerShell. This registers a task named `DailyOLEDWallpaper` to run at 9:00 AM each day. The script will download the pre‑compiled `oled-wallpaper-automator.exe` on the first run.
+3. **Manual trigger** – Double‑click `Refresh Wallpaper.bat` to fetch and apply a new wallpaper instantly.
+4. **Uninstall** – Run `uninstall.ps1` to delete the scheduled task, then delete the project folder.
 
-- **AMOLED/OLED Optimized**: Exclusively fetches from the OLED category, providing high-contrast backgrounds that save power and look stunning on self-emissive screens.
-- **Random Variety**: Automatically detects the total number of pages and crawls a random page to ensure wide variety.
-- **Intelligent History**: Remembers your last 50 wallpapers using a local history file (`.wallpaper_history`) to prevent repeated backgrounds.
-- **Clean Storage**: Automatically deletes previously downloaded wallpapers from the local `wallpapers/` directory to save disk space.
-- **Multi-Monitor Span**: Sets the desktop background via the native Windows COM `IDesktopWallpaper` interface using "Span" scaling, perfectly filling all connected monitors.
-- **Network Resilience**: Automatically retries up to 3 times (with a 60-second delay) if your network connection is not immediately active upon startup.
-- **Set & Forget**: Easily schedule it to run daily using Windows Task Scheduler—even if your PC was off during the scheduled time, it will run as soon as you boot.
+## Repository Layout
+- `src/main.rs` – Core Rust code handling scraping, file management, and COM interaction.
+- `Cargo.toml` – Rust package manifest.
+- `Refresh Wallpaper.bat` – Batch file for manual wallpaper refresh.
+- `setup-task.ps1` – PowerShell script to schedule the daily task.
+- `uninstall.ps1` – PowerShell script to remove the scheduled task.
+- `wallpapers/` *(generated)* – Stores the current wallpaper.
+- `.wallpaper_history` *(generated)* – Tracks the last 50 wallpaper URLs.
 
----
-
-## 🚀 Quick Start (Plug-and-Play)
-
-This project is fully automated. You do not need to install Rust or manually download any executables. The helper scripts will automatically bootstrap the application for you.
-
-### Installation & Automation
-
-1. **Place the folder**: Save this project folder in a permanent location (e.g., `C:\Users\YourUsername\Projects\oled-wallpaper-automator`). 
-   > [!IMPORTANT]
-   > Do not move or rename this folder after scheduling, otherwise Windows Task Scheduler will not be able to find the executable.
-2. **Schedule Daily Refresh**:
-   - Right-click **`setup-task.ps1`** and select **Run with PowerShell**.
-   - This schedules a daily Windows task named `DailyOLEDWallpaper` to run at **9:00 AM**.
-   - *Note: On the very first execution, the script will automatically download the precompiled `oled-wallpaper-automator.exe` binary directly from GitHub Releases.*
-
-### Manual Trigger
-- Double-click **`Refresh Wallpaper.bat`** to fetch and apply a new wallpaper instantly.
-- *Tip: You can right-click this batch file and select **Send to -> Desktop (create shortcut)** for easy access.*
-
-### Uninstallation
-1. Right-click **`uninstall.ps1`** and select **Run with PowerShell** to safely delete the scheduled task from Windows Task Scheduler.
-2. Delete the project folder. Your current wallpaper will remain active.
-
----
-
-## 📂 File Structure
-
-- **`src/main.rs`**: The Rust source code that handles scraping, file management, and COM interactions.
-- **`Cargo.toml`**: The Rust dependency and package manifest.
-- **`Refresh Wallpaper.bat`**: Batch file for instant manual wallpaper refreshes (auto-downloads executable if missing).
-- **`setup-task.ps1`**: PowerShell script to schedule the daily task in Windows (auto-downloads executable if missing).
-- **`uninstall.ps1`**: PowerShell script to delete the scheduled task.
-- **`wallpapers/`** *(Generated)*: Directory where the currently downloaded wallpaper is stored.
-- **`.wallpaper_history`** *(Generated)*: Local text database storing the last 50 set wallpaper URLs to avoid repetition.
-
----
-
-## 🛠️ Building From Source
-
-If you prefer to compile the binary yourself instead of using the precompiled release:
-
-1. Install [Rust and Cargo](https://rustup.rs/).
-2. Open a terminal in this directory.
-3. Build the release binary:
-   ```bash
+## Building From Source
+1. Install [Rust & Cargo](https://rustup.rs/).
+2. From a terminal in the project directory, run:
+   ```
    cargo build --release
    ```
-4. Copy the compiled executable from the target directory to the project root:
+3. Copy the resulting executable to the project root:
    ```powershell
-   copy target\release\oled-wallpaper-automator.exe .\
+   copy target\\release\\oled-wallpaper-automator.exe .\\
    ```
+The source passes `cargo clippy -- -D warnings` with no issues.
 
----
 
-## 📄 License
-
-This project is licensed under the [MIT License](LICENSE).

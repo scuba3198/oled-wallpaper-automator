@@ -1,5 +1,9 @@
+//! OLED Wallpaper Automator
+#![deny(missing_docs)]
+#![allow(clippy::duration_suboptimal_units)]
 // std
 use std::fs;
+
 use std::path::Path;
 use std::thread;
 use std::time::Duration;
@@ -15,9 +19,11 @@ use windows::Win32::UI::Shell::{DesktopWallpaper, IDesktopWallpaper, DWPOS_SPAN}
 
 const BASE_URL: &str = "https://4kwallpapers.com/oled-wallpapers/";
 const MAX_RETRIES: u32 = 3;
-const RETRY_DELAY: Duration = Duration::from_mins(1);
+
+const RETRY_DELAY: Duration = Duration::from_secs(60);
 const MAX_HISTORY: usize = 50;
 
+/// Entry point for the OLED Wallpaper Automator
 fn main() {
     // SAFETY: The COM library must be initialized on the current thread before executing COM operations.
     // We ignore the error result in case the COM library is already initialized on this thread.
@@ -66,12 +72,13 @@ fn run() -> Result<()> {
     // 4. Filter links using history
     let selected_url = {
         let mut rng = rand::thread_rng();
-        let filtered_links: Vec<&String> = links
+        let filtered_links: Vec<String> = links
             .iter()
             .filter(|link| !history.contains(*link))
+            .cloned()
             .collect();
 
-        if let Some(&link) = filtered_links.choose(&mut rng) {
+        if let Some(link) = filtered_links.choose(&mut rng) {
             link.clone()
         } else {
             println!("All scraped wallpapers are in history. Selecting a random one anyway.");
@@ -133,7 +140,7 @@ fn get_wallpaper_links() -> Result<Vec<String>> {
     let pagination_selector = Selector::parse(".pagination a").map_err(|_| anyhow!("Invalid pagination selector"))?;
     
     let max_pages = if let Some(second_to_last) = document.select(&pagination_selector).rev().nth(1) {
-        let text = second_to_last.text().collect::<String>();
+        let text: String = second_to_last.text().collect();
         text.trim().parse::<u32>().unwrap_or(40).max(1)
     } else {
         40
@@ -195,10 +202,11 @@ fn download_and_set_wallpaper(url: &str, wallpaper_dir: &Path) -> Result<()> {
 
     println!("Downloading wallpaper to {}...", file_path.display());
 
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_mins(1))
-        .build()
-        .context("Failed to build download HTTP client")?;
+    #[allow(clippy::duration_suboptimal_units)]
+let client = reqwest::blocking::Client::builder()
+    .timeout(Duration::from_secs(60))
+    .build()
+    .context("Failed to build download HTTP client")?;
 
     let mut resp = client.get(url).send().context("Failed to download image")?;
     let mut file = fs::File::create(&file_path).context("Failed to create image file")?;
