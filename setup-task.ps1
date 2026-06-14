@@ -41,3 +41,5 @@ Write-Host "`n✅ Task '$TaskName' has been scheduled successfully!"
 Write-Host "It will run every day at 9:00 AM."
 Write-Host "You can manually run it from 'Task Scheduler' to test."
 
+Write-Host "`nPress any key to close..."
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")

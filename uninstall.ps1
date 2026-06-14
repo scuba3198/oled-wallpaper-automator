@@ -13,3 +13,7 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
 Write-Host "`nTo finish uninstallation:"
 Write-Host "1. You can now safely delete this entire folder: $(Get-Location)"
 Write-Host "2. Your current wallpaper will remain as-is."
+
+Write-Host "`nPress any key to close..."
+$null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+

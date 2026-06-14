@@ -15,7 +15,7 @@ use rand::Rng;
 use scraper::{Html, Selector};
 use windows::core::HSTRING;
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED};
-use windows::Win32::UI::Shell::{DesktopWallpaper, IDesktopWallpaper, DWPOS_SPAN};
+use windows::Win32::UI::Shell::{DesktopWallpaper, IDesktopWallpaper, DWPOS_FILL};
 
 const BASE_URL: &str = "https://4kwallpapers.com/oled-wallpapers/";
 const MAX_RETRIES: u32 = 3;
@@ -224,9 +224,9 @@ let client = reqwest::blocking::Client::builder()
         let wallpaper_mgr: IDesktopWallpaper = CoCreateInstance(&DesktopWallpaper, None, CLSCTX_ALL)
             .map_err(|e| anyhow!("Failed to create DesktopWallpaper COM instance: {e}"))?;
 
-        // Set the wallpaper style to Span
-        wallpaper_mgr.SetPosition(DWPOS_SPAN)
-            .map_err(|e| anyhow!("Failed to set wallpaper style to Span: {e}"))?;
+        // Set the wallpaper style to Fill
+        wallpaper_mgr.SetPosition(DWPOS_FILL)
+            .map_err(|e| anyhow!("Failed to set wallpaper style to Fill: {e}"))?;
 
         // Set the wallpaper path (None sets it for all monitors)
         wallpaper_mgr.SetWallpaper(None, &path_hstring)

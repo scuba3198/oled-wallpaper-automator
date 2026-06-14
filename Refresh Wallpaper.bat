@@ -21,5 +21,3 @@ if not exist "oled-wallpaper-automator.exe" (
 
 echo Selecting a fresh wallpaper...
 oled-wallpaper-automator.exe
-pause
-
