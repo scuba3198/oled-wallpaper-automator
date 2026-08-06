@@ -1,6 +1,7 @@
 //! OLED Wallpaper Automator
 #![deny(missing_docs)]
 #![allow(clippy::duration_suboptimal_units)]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 // std
 use std::fs;
 
