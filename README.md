@@ -7,7 +7,7 @@ A lightweight Windows utility written in **Rust** that automatically downloads h
 - **Random Variety** – Randomly selects a page and wallpaper each run.
 - **History Tracking** – Stores the last 50 wallpaper URLs in `.wallpaper_history` to avoid repeats.
 - **Clean Storage** – Removes previously downloaded files from the `wallpapers/` folder before saving a new one.
-- **Multi‑Monitor Support** – Uses the Windows `IDesktopWallpaper` COM interface with *Span* scaling to cover all monitors.
+- **Wallpaper Scaling** – Uses the Windows `IDesktopWallpaper` COM interface with *Fill* scaling, ideal for a single display.
 - **Network Resilience** – Retries up to three times with a 60‑second delay on failure.
 - **Task Scheduler Integration** – Includes a PowerShell script to schedule a daily refresh.
 - **Rust Best‑Practice Ready** – Crate‑level documentation, `#![deny(missing_docs)]`, and passes `cargo clippy -- -D warnings` with no warnings.
@@ -38,5 +38,4 @@ A lightweight Windows utility written in **Rust** that automatically downloads h
    copy target\\release\\oled-wallpaper-automator.exe .\\
    ```
 The source passes `cargo clippy -- -D warnings` with no issues.
-
 

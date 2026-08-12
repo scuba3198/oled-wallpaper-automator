@@ -4,6 +4,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 // std
 use std::fs;
+use std::io::Read;
 
 use std::path::Path;
 use std::thread;
@@ -60,7 +61,7 @@ fn run() -> Result<()> {
         .parent()
         .ok_or_else(|| anyhow!("Failed to get executable directory"))?
         .to_path_buf();
-    
+
     let wallpaper_dir = exe_dir.join("wallpapers");
     let history_path = exe_dir.join(".wallpaper_history");
 
@@ -69,7 +70,7 @@ fn run() -> Result<()> {
 
     // 3. Get list of wallpaper links
     let links = get_wallpaper_links()?;
-    
+
     // 4. Filter links using history
     let selected_url = {
         let mut rng = rand::thread_rng();
@@ -134,12 +135,17 @@ fn get_wallpaper_links() -> Result<Vec<String>> {
         .context("Failed to build HTTP client")?;
 
     println!("Accessing {BASE_URL}...");
-    let resp = client.get(BASE_URL).send().context("Failed to send initial request")?;
+    let resp = client
+        .get(BASE_URL)
+        .send()
+        .context("Failed to send initial request")?
+        .error_for_status()
+        .context("Wallpaper index returned an error")?;
     let body = resp.text().context("Failed to read initial response body")?;
-    
+
     let document = Html::parse_document(&body);
     let pagination_selector = Selector::parse(".pagination a").map_err(|_| anyhow!("Invalid pagination selector"))?;
-    
+
     let max_pages = if let Some(second_to_last) = document.select(&pagination_selector).rev().nth(1) {
         let text: String = second_to_last.text().collect();
         text.trim().parse::<u32>().unwrap_or(40).max(1)
@@ -150,7 +156,7 @@ fn get_wallpaper_links() -> Result<Vec<String>> {
 
     let mut rng = rand::thread_rng();
     let random_page = rng.gen_range(1..=max_pages);
-    
+
     let page_url = if random_page == 1 {
         BASE_URL.to_string()
     } else {
@@ -158,12 +164,17 @@ fn get_wallpaper_links() -> Result<Vec<String>> {
     };
     println!("Fetching random page: {page_url}");
 
-    let page_resp = client.get(&page_url).send().context("Failed to fetch page")?;
+    let page_resp = client
+        .get(&page_url)
+        .send()
+        .context("Failed to fetch page")?
+        .error_for_status()
+        .context("Wallpaper page returned an error")?;
     let page_body = page_resp.text().context("Failed to read page body")?;
-    
+
     let page_document = Html::parse_document(&page_body);
     let img_selector = Selector::parse("a[href*=\"/images/wallpapers/\"]").map_err(|_| anyhow!("Invalid image selector"))?;
-    
+
     let links: Vec<String> = page_document
         .select(&img_selector)
         .filter_map(|element| element.value().attr("href"))
@@ -186,35 +197,39 @@ fn get_wallpaper_links() -> Result<Vec<String>> {
 
 fn download_and_set_wallpaper(url: &str, wallpaper_dir: &Path) -> Result<()> {
     fs::create_dir_all(wallpaper_dir).context("Failed to create wallpaper directory")?;
-    
-    // Clean old wallpaper files to save space
-    if wallpaper_dir.exists() {
-        for entry in fs::read_dir(wallpaper_dir).context("Failed to read wallpaper directory")? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_file() {
-                fs::remove_file(path).context("Failed to remove old wallpaper file")?;
-            }
-        }
-    }
 
     let file_name = url.split('/').next_back().unwrap_or("wallpaper.png");
     let file_path = wallpaper_dir.join(file_name);
+    let temp_path = wallpaper_dir.join(".download");
 
     println!("Downloading wallpaper to {}...", file_path.display());
 
-    #[allow(clippy::duration_suboptimal_units)]
-let client = reqwest::blocking::Client::builder()
-    .timeout(Duration::from_secs(60))
-    .build()
-    .context("Failed to build download HTTP client")?;
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .context("Failed to build download HTTP client")?;
 
-    let mut resp = client.get(url).send().context("Failed to download image")?;
-    let mut file = fs::File::create(&file_path).context("Failed to create image file")?;
-    resp.copy_to(&mut file).context("Failed to save image bytes")?;
+    let mut resp = client
+        .get(url)
+        .send()
+        .context("Failed to download image")?
+        .error_for_status()
+        .context("Wallpaper download returned an error")?;
+    let mut file = fs::File::create(&temp_path).context("Failed to create image file")?;
+    resp.copy_to(&mut file)
+        .context("Failed to save image bytes")?;
+    drop(file);
+    if !is_supported_image(&temp_path)? {
+        let _ = fs::remove_file(&temp_path);
+        return Err(anyhow!("Wallpaper download is not a supported image"));
+    }
+    if file_path.exists() {
+        fs::remove_file(&file_path).context("Failed to replace existing wallpaper file")?;
+    }
+    fs::rename(&temp_path, &file_path).context("Failed to finalize image file")?;
 
     println!("Setting wallpaper via COM IDesktopWallpaper interface...");
-    
+
     let file_path_str = file_path.to_str().ok_or_else(|| anyhow!("Invalid path encoding"))?;
     let path_hstring = HSTRING::from(file_path_str);
 
@@ -234,8 +249,26 @@ let client = reqwest::blocking::Client::builder()
             .map_err(|e| anyhow!("Failed to set wallpaper: {e}"))?;
     }
 
+    for entry in fs::read_dir(wallpaper_dir).context("Failed to read wallpaper directory")? {
+        let path = entry?.path();
+        if path.is_file() && path != file_path {
+            fs::remove_file(path).context("Failed to remove old wallpaper file")?;
+        }
+    }
+
     println!("Wallpaper set successfully.");
     Ok(())
+}
+
+fn is_supported_image(path: &Path) -> Result<bool> {
+    let mut header = [0; 12];
+    fs::File::open(path)
+        .context("Failed to validate downloaded image")?
+        .read(&mut header)
+        .context("Failed to read downloaded image")?;
+    Ok(header.starts_with(b"\x89PNG\r\n\x1a\n")
+        || header.starts_with(b"\xff\xd8\xff")
+        || (header.starts_with(b"RIFF") && &header[8..] == b"WEBP"))
 }
 
 #[cfg(test)]
@@ -256,15 +289,15 @@ mod tests {
     fn save_and_load_history_should_persist_and_retrieve_correctly() -> Result<()> {
         let temp_file = NamedTempFile::new()?;
         let path = temp_file.path();
-        
+
         let original_history = vec![
             "https://example.com/1.png".to_string(),
             "https://example.com/2.png".to_string(),
         ];
-        
+
         save_history(path, &original_history)?;
         let loaded = load_history(path)?;
-        
+
         assert_eq!(loaded, original_history, "Loaded history does not match saved history");
         Ok(())
     }
@@ -277,7 +310,7 @@ mod tests {
             "3.png".to_string(),
         ];
         add_to_history(&mut history, "4.png".to_string(), 3);
-        
+
         assert_eq!(history.len(), 3);
         assert_eq!(history, vec!["2.png".to_string(), "3.png".to_string(), "4.png".to_string()]);
     }
@@ -286,12 +319,22 @@ mod tests {
     fn load_history_should_trim_and_filter_empty_lines() -> Result<()> {
         let temp_file = NamedTempFile::new()?;
         let path = temp_file.path();
-        
+
         // Write raw history with extra spacing and empty lines
         fs::write(path, "  url1.png  \n\n  url2.png\n")?;
         let loaded = load_history(path)?;
-        
+
         assert_eq!(loaded, vec!["url1.png".to_string(), "url2.png".to_string()]);
+        Ok(())
+    }
+
+    #[test]
+    fn validates_image_signatures() -> Result<()> {
+        let temp_file = NamedTempFile::new()?;
+        fs::write(temp_file.path(), b"\x89PNG\r\n\x1a\nrest")?;
+        assert!(is_supported_image(temp_file.path())?);
+        fs::write(temp_file.path(), b"<html>nope</html>")?;
+        assert!(!is_supported_image(temp_file.path())?);
         Ok(())
     }
 }
