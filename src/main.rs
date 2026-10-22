@@ -13,13 +13,12 @@ use std::time::Duration;
 // external crates
 use anyhow::{anyhow, Context, Result};
 use rand::seq::SliceRandom;
-use rand::Rng;
-use scraper::{Html, Selector};
+use serde::Deserialize;
 use windows::core::HSTRING;
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CLSCTX_ALL, COINIT_APARTMENTTHREADED};
 use windows::Win32::UI::Shell::{DesktopWallpaper, IDesktopWallpaper, DWPOS_FILL};
 
-const BASE_URL: &str = "https://4kwallpapers.com/oled-wallpapers/";
+const BASE_URL: &str = "https://wallhaven.cc/api/v1/search";
 const MAX_RETRIES: u32 = 3;
 
 const RETRY_DELAY: Duration = Duration::from_secs(60);
@@ -41,7 +40,7 @@ fn main() {
                 return;
             }
             Err(e) => {
-                eprintln!("Attempt {attempt} failed: {e}");
+                eprintln!("Attempt {attempt} failed: {e:#}");
                 if attempt < MAX_RETRIES {
                     println!("Retrying in {} seconds...", RETRY_DELAY.as_secs());
                     thread::sleep(RETRY_DELAY);
@@ -128,6 +127,16 @@ fn add_to_history(history: &mut Vec<String>, url: String, max_history: usize) {
     }
 }
 
+#[derive(Deserialize)]
+struct SearchResponse {
+    data: Vec<Wallpaper>,
+}
+
+#[derive(Deserialize)]
+struct Wallpaper {
+    path: String,
+}
+
 fn get_wallpaper_links() -> Result<Vec<String>> {
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -137,61 +146,41 @@ fn get_wallpaper_links() -> Result<Vec<String>> {
     println!("Accessing {BASE_URL}...");
     let resp = client
         .get(BASE_URL)
+        .query(&[
+            ("q", "black"),
+            ("colors", "000000"),
+            ("purity", "100"),
+            ("atleast", "3840x2160"),
+            ("sorting", "random"),
+        ])
         .send()
-        .context("Failed to send initial request")?
+        .context("Failed to query Wallhaven")?
         .error_for_status()
-        .context("Wallpaper index returned an error")?;
-    let body = resp.text().context("Failed to read initial response body")?;
+        .context("Wallhaven API returned an error")?;
+    let body = resp.text().context("Failed to read Wallhaven response")?;
+    parse_wallpaper_links(&body)
+}
 
-    let document = Html::parse_document(&body);
-    let pagination_selector = Selector::parse(".pagination a").map_err(|_| anyhow!("Invalid pagination selector"))?;
-
-    let max_pages = if let Some(second_to_last) = document.select(&pagination_selector).rev().nth(1) {
-        let text: String = second_to_last.text().collect();
-        text.trim().parse::<u32>().unwrap_or(40).max(1)
-    } else {
-        40
-    };
-    println!("Detected max pages: {max_pages}");
-
-    let mut rng = rand::thread_rng();
-    let random_page = rng.gen_range(1..=max_pages);
-
-    let page_url = if random_page == 1 {
-        BASE_URL.to_string()
-    } else {
-        format!("{BASE_URL}?page={random_page}")
-    };
-    println!("Fetching random page: {page_url}");
-
-    let page_resp = client
-        .get(&page_url)
-        .send()
-        .context("Failed to fetch page")?
-        .error_for_status()
-        .context("Wallpaper page returned an error")?;
-    let page_body = page_resp.text().context("Failed to read page body")?;
-
-    let page_document = Html::parse_document(&page_body);
-    let img_selector = Selector::parse("a[href*=\"/images/wallpapers/\"]").map_err(|_| anyhow!("Invalid image selector"))?;
-
-    let links: Vec<String> = page_document
-        .select(&img_selector)
-        .filter_map(|element| element.value().attr("href"))
-        .map(|href| {
-            if href.starts_with('/') {
-                format!("https://4kwallpapers.com{href}")
-            } else {
-                href.to_string()
-            }
-        })
-        .collect();
-
-    if links.is_empty() {
-        return Err(anyhow!("No wallpaper links found on page {random_page}"));
+fn parse_wallpaper_links(body: &str) -> Result<Vec<String>> {
+    let response: SearchResponse = serde_json::from_str(body)
+        .context("Invalid Wallhaven search response")?;
+    let mut links = Vec::new();
+    for wallpaper in response.data {
+        let url = reqwest::Url::parse(&wallpaper.path)
+            .context("Invalid Wallhaven image URL")?;
+        if url.scheme() != "https" || url.host_str() != Some("w.wallhaven.cc")
+            || url.query().is_some() || url.fragment().is_some()
+            || !Path::new(url.path()).extension().is_some_and(|extension|
+                extension.eq_ignore_ascii_case("jpg") || extension.eq_ignore_ascii_case("png"))
+        {
+            return Err(anyhow!("Unexpected Wallhaven image URL"));
+        }
+        links.push(wallpaper.path);
     }
-
-    println!("Found {} wallpapers on page {random_page}", links.len());
+    if links.is_empty() {
+        return Err(anyhow!("No matching 4K dark wallpapers found on Wallhaven"));
+    }
+    println!("Found {} wallpapers on Wallhaven", links.len());
     Ok(links)
 }
 
@@ -275,6 +264,29 @@ fn is_supported_image(path: &Path) -> Result<bool> {
 mod tests {
     use super::*;
     use tempfile::NamedTempFile;
+
+    #[test]
+    fn parses_wallhaven_image_links() -> Result<()> {
+        let body = r#"{"data":[{"path":"https://w.wallhaven.cc/full/ab/wallhaven-abc123.jpg","id":"abc123"},{"path":"https://w.wallhaven.cc/full/cd/wallhaven-cde456.PNG"}]}"#;
+        assert_eq!(parse_wallpaper_links(body)?, vec!["https://w.wallhaven.cc/full/ab/wallhaven-abc123.jpg", "https://w.wallhaven.cc/full/cd/wallhaven-cde456.PNG"]);
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_invalid_wallhaven_responses() {
+        for body in [
+            "<html>Just a moment...</html>",
+            r#"{"data":[]}"#,
+            r#"{"data":[{}]}"#,
+            r#"{"data":[{"path":"http://w.wallhaven.cc/full/ab/image.jpg"}]}"#,
+            r#"{"data":[{"path":"https://example.com/image.jpg"}]}"#,
+            r#"{"data":[{"path":"https://w.wallhaven.cc/image.html"}]}"#,
+            r#"{"data":[{"path":"https://w.wallhaven.cc/image.jpg?file=other"}]}"#,
+            r#"{"data":[{"path":"https://w.wallhaven.cc/image.jpg#fragment"}]}"#,
+        ] {
+            assert!(parse_wallpaper_links(body).is_err(), "Accepted {body}");
+        }
+    }
 
     #[test]
     fn load_history_should_return_empty_when_file_not_found() -> Result<()> {
