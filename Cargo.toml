@@ -19,7 +19,7 @@ panic = "abort"
 strip = true
 
 [lints.rust]
-future-incompatible = "warn"
+future_incompatible = "warn"
 nonstandard_style = { level = "deny", priority = -1 }
 
 [lints.clippy]

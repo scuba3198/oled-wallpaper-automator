@@ -170,7 +170,8 @@ fn parse_wallpaper_links(body: &str) -> Result<Vec<String>> {
             .context("Invalid Wallhaven image URL")?;
         if url.scheme() != "https" || url.host_str() != Some("w.wallhaven.cc")
             || url.query().is_some() || url.fragment().is_some()
-            || !(url.path().ends_with(".jpg") || url.path().ends_with(".png"))
+            || !Path::new(url.path()).extension().is_some_and(|extension|
+                extension.eq_ignore_ascii_case("jpg") || extension.eq_ignore_ascii_case("png"))
         {
             return Err(anyhow!("Unexpected Wallhaven image URL"));
         }
@@ -266,8 +267,8 @@ mod tests {
 
     #[test]
     fn parses_wallhaven_image_links() -> Result<()> {
-        let body = r#"{"data":[{"path":"https://w.wallhaven.cc/full/ab/wallhaven-abc123.jpg","id":"abc123"}]}"#;
-        assert_eq!(parse_wallpaper_links(body)?, vec!["https://w.wallhaven.cc/full/ab/wallhaven-abc123.jpg"]);
+        let body = r#"{"data":[{"path":"https://w.wallhaven.cc/full/ab/wallhaven-abc123.jpg","id":"abc123"},{"path":"https://w.wallhaven.cc/full/cd/wallhaven-cde456.PNG"}]}"#;
+        assert_eq!(parse_wallpaper_links(body)?, vec!["https://w.wallhaven.cc/full/ab/wallhaven-abc123.jpg", "https://w.wallhaven.cc/full/cd/wallhaven-cde456.PNG"]);
         Ok(())
     }
 
@@ -280,6 +281,8 @@ mod tests {
             r#"{"data":[{"path":"http://w.wallhaven.cc/full/ab/image.jpg"}]}"#,
             r#"{"data":[{"path":"https://example.com/image.jpg"}]}"#,
             r#"{"data":[{"path":"https://w.wallhaven.cc/image.html"}]}"#,
+            r#"{"data":[{"path":"https://w.wallhaven.cc/image.jpg?file=other"}]}"#,
+            r#"{"data":[{"path":"https://w.wallhaven.cc/image.jpg#fragment"}]}"#,
         ] {
             assert!(parse_wallpaper_links(body).is_err(), "Accepted {body}");
         }
