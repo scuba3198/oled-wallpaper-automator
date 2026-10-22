@@ -1,12 +1,12 @@
 # OLED Wallpaper Automator
 
-A lightweight Windows utility written in **Rust** that automatically downloads high‑resolution, OLED‑optimized wallpapers from [4kwallpapers.com](https://4kwallpapers.com/oled-wallpapers/) and sets them as your desktop background.
+A lightweight Windows utility written in **Rust** that automatically downloads high‑resolution, dark wallpapers at 4K or higher from the [Wallhaven API](https://wallhaven.cc/help/api) and sets them as your desktop background.
 
 ## Features
-- **OLED‑Optimized** – Retrieves only wallpapers from the OLED category for better contrast on self‑emissive displays.
-- **Random Variety** – Randomly selects a page and wallpaper each run.
+- **Dark 4K Wallpapers** – Searches safe-for-work wallpapers tagged black, with black as a dominant color and a minimum resolution of 3840×2160. No API key is needed. Dark results are not guaranteed to have pure-black OLED backgrounds.
+- **Random Variety** – Requests a random selection from Wallhaven and chooses a wallpaper each run.
 - **History Tracking** – Stores the last 50 wallpaper URLs in `.wallpaper_history` to avoid repeats.
-- **Clean Storage** – Removes previously downloaded files from the `wallpapers/` folder before saving a new one.
+- **Clean Storage** – Removes old files from the `wallpapers/` folder only after downloading, validating, and applying a new wallpaper.
 - **Wallpaper Scaling** – Uses the Windows `IDesktopWallpaper` COM interface with *Fill* scaling, ideal for a single display.
 - **Network Resilience** – Retries up to three times with a 60‑second delay on failure.
 - **Task Scheduler Integration** – Includes a PowerShell script to schedule a daily refresh.
@@ -19,7 +19,7 @@ A lightweight Windows utility written in **Rust** that automatically downloads h
 4. **Uninstall** – Run `uninstall.ps1` to delete the scheduled task, then delete the project folder.
 
 ## Repository Layout
-- `src/main.rs` – Core Rust code handling scraping, file management, and COM interaction.
+- `src/main.rs` – Core Rust code handling the Wallhaven API, file management, and COM interaction.
 - `Cargo.toml` – Rust package manifest.
 - `Refresh Wallpaper.bat` – Batch file for manual wallpaper refresh.
 - `setup-task.ps1` – PowerShell script to schedule the daily task.
@@ -39,3 +39,5 @@ A lightweight Windows utility written in **Rust** that automatically downloads h
    ```
 The source passes `cargo clippy -- -D warnings` with no issues.
 
+
+Existing users: download the latest release executable and replace the old executable in your installation folder. The existing daily task and wallpaper history continue to work.

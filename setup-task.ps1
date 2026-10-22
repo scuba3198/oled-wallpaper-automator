@@ -35,7 +35,7 @@ $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 
 # Register the task
 $TaskName = "DailyOLEDWallpaper"
-Register-ScheduledTask -Action $Action -Trigger $Trigger -Settings $Settings -TaskName $TaskName -Description "Daily OLED wallpaper updater from 4kwallpapers.com" -Force
+Register-ScheduledTask -Action $Action -Trigger $Trigger -Settings $Settings -TaskName $TaskName -Description "Daily dark 4K wallpaper updater from Wallhaven" -Force
 
 Write-Host "`n✅ Task '$TaskName' has been scheduled successfully!"
 Write-Host "It will run every day at 9:00 AM."
