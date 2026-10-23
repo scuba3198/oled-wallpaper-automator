@@ -181,7 +181,7 @@ fn download_and_set_wallpaper(url: &str, wallpaper_dir: &Path) -> Result<bool> {
 
     let file_name = url.split('/').next_back().unwrap_or("wallpaper.png");
     let file_path = wallpaper_dir.join(file_name);
-    let temp_path = wallpaper_dir.join(".download");
+    let temp_path = wallpaper_dir.join(format!(".download-{}", std::process::id()));
 
     println!("Downloading wallpaper to {}...", file_path.display());
 
@@ -402,6 +402,36 @@ mod tests {
         assert!(is_dark_4k_wallpaper(temp_file.path()).is_err());
         fs::write(temp_file.path(), b"<html>nope</html>")?;
         assert!(is_dark_4k_wallpaper(temp_file.path()).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn bright_download_cannot_replace_the_existing_wallpaper() -> Result<()> {
+        use std::io::{Cursor, Read, Write};
+        use std::net::TcpListener;
+
+        let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            3840, 2160, image::Rgb([255, 255, 255]),
+        ));
+        let mut bytes = Vec::new();
+        image.write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)?;
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let url = format!("http://{}/bright.png", listener.local_addr()?);
+        let server = thread::spawn(move || -> Result<()> {
+            let (mut stream, _) = listener.accept()?;
+            stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+            let _ = stream.read(&mut [0; 4096])?;
+            write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", bytes.len())?;
+            stream.write_all(&bytes)?;
+            Ok(())
+        });
+        let directory = tempfile::tempdir()?;
+        let current = directory.path().join("current.png");
+        fs::write(&current, b"previous wallpaper")?;
+        assert!(!download_and_set_wallpaper(&url, directory.path())?);
+        server.join().expect("Test HTTP server panicked")?;
+        assert_eq!(fs::read(&current)?, b"previous wallpaper");
+        assert_eq!(fs::read_dir(directory.path())?.count(), 1);
         Ok(())
     }
 }
