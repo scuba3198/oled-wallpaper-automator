@@ -29,4 +29,3 @@ all = { level = "deny", priority = 10 }
 redundant_clone = { level = "deny", priority = 9 }
 manual_while_let_some = { level = "deny", priority = 4 }
 pedantic = { level = "warn", priority = 3 }
-

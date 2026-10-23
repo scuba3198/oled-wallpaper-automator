@@ -414,17 +414,21 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0")?;
         let url = format!("http://{}/bright.png", listener.local_addr()?);
         let server = thread::spawn(move || -> Result<()> {
-            let (mut stream, _) = listener.accept()?;
-            stream.set_read_timeout(Some(Duration::from_secs(10)))?;
-            let _ = stream.read(&mut [0; 4096])?;
-            write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", bytes.len())?;
-            stream.write_all(&bytes)?;
+            for missing_bytes in [0, 1] {
+                let (mut stream, _) = listener.accept()?;
+                stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+                let _ = stream.read(&mut [0; 4096])?;
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", bytes.len() + missing_bytes)?;
+                stream.write_all(&bytes)?;
+            }
             Ok(())
         });
         let directory = tempfile::tempdir()?;
         let current = directory.path().join("current.png");
         fs::write(&current, b"previous wallpaper")?;
         assert!(!download_and_set_wallpaper(&url, directory.path())?);
+        assert_eq!(fs::read_dir(directory.path())?.count(), 1);
+        assert!(download_and_set_wallpaper(&url, directory.path()).is_err());
         server.join().expect("Test HTTP server panicked")?;
         assert_eq!(fs::read(&current)?, b"previous wallpaper");
         assert_eq!(fs::read_dir(directory.path())?.count(), 1);
