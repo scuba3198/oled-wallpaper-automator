@@ -181,7 +181,6 @@ fn download_and_set_wallpaper(url: &str, wallpaper_dir: &Path) -> Result<bool> {
 
     let file_name = url.split('/').next_back().unwrap_or("wallpaper.png");
     let file_path = wallpaper_dir.join(file_name);
-    let temp_path = wallpaper_dir.join(format!(".download-{}", std::process::id()));
 
     println!("Downloading wallpaper to {}...", file_path.display());
 
@@ -196,19 +195,16 @@ fn download_and_set_wallpaper(url: &str, wallpaper_dir: &Path) -> Result<bool> {
         .context("Failed to download image")?
         .error_for_status()
         .context("Wallpaper download returned an error")?;
-    let mut file = fs::File::create(&temp_path).context("Failed to create image file")?;
-    resp.copy_to(&mut file)
+    let mut download = tempfile::NamedTempFile::new_in(wallpaper_dir)
+        .context("Failed to create temporary image file")?;
+    resp.copy_to(download.as_file_mut())
         .context("Failed to save image bytes")?;
-    drop(file);
-    if !is_dark_4k_wallpaper(&temp_path).unwrap_or(false) {
-        let _ = fs::remove_file(&temp_path);
+    if !is_dark_4k_wallpaper(download.path()).unwrap_or(false) {
         println!("Rejected image: not a decodable dark 4K landscape: {url}");
         return Ok(false);
     }
-    if file_path.exists() {
-        fs::remove_file(&file_path).context("Failed to replace existing wallpaper file")?;
-    }
-    fs::rename(&temp_path, &file_path).context("Failed to finalize image file")?;
+    download.persist(&file_path).map_err(|error| error.error)
+        .context("Failed to finalize image file")?;
 
     println!("Setting wallpaper via COM IDesktopWallpaper interface...");
 
