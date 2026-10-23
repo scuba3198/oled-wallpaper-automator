@@ -3,10 +3,11 @@
 A lightweight Windows utility written in **Rust** that automatically downloads high‑resolution, dark wallpapers at 4K or higher from the [Wallhaven API](https://wallhaven.cc/help/api) and sets them as your desktop background.
 
 ## Features
-- **Dark 4K Wallpapers** – Searches safe-for-work wallpapers tagged black, with black as a dominant color and a minimum resolution of 3840×2160. No API key is needed. Dark results are not guaranteed to have pure-black OLED backgrounds.
-- **Random Variety** – Requests a random selection from Wallhaven and chooses a wallpaper each run.
+- **Dark 4K Wallpapers** – Searches safe-for-work wallpapers with the exact black-background tag, then decodes the full downloaded image before applying it. Requires at least 3840×2160 and a landscape aspect ratio between 16:10 and 16:9. No API key is needed.
+- **Strict Pixel Check** – At least 85% of pixels must have every RGB channel at or below 40/255, no more than 5% may have any channel above 96/255, and the average brightest channel must be at most 28/255. Transparent, corrupt, small, or bright images are rejected before changing the wallpaper. Small bright accents are allowed; the background must be predominantly near black.
+- **Random Variety** – Shuffles random Wallhaven results and checks up to 12 candidates per attempt. If none passes, the current wallpaper and history remain unchanged.
 - **History Tracking** – Stores the last 50 wallpaper URLs in `.wallpaper_history` to avoid repeats.
-- **Clean Storage** – Removes old files from the `wallpapers/` folder only after downloading, validating, and applying a new wallpaper.
+- **Clean Storage** – Rejected images and failed partial downloads are automatically deleted. Old accepted wallpapers are removed after successfully applying a new one.
 - **Wallpaper Scaling** – Uses the Windows `IDesktopWallpaper` COM interface with *Fill* scaling, ideal for a single display.
 - **Network Resilience** – Retries up to three times with a 60‑second delay on failure.
 - **Task Scheduler Integration** – Includes a PowerShell script to schedule a daily refresh.

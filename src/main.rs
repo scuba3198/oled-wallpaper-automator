@@ -4,7 +4,6 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 // std
 use std::fs;
-use std::io::Read;
 
 use std::path::Path;
 use std::thread;
@@ -71,32 +70,24 @@ fn run() -> Result<()> {
     let links = get_wallpaper_links()?;
 
     // 4. Filter links using history
-    let selected_url = {
-        let mut rng = rand::thread_rng();
-        let filtered_links: Vec<String> = links
+    let mut candidates: Vec<String> = links
             .iter()
             .filter(|link| !history.contains(*link))
             .cloned()
             .collect();
-
-        if let Some(link) = filtered_links.choose(&mut rng) {
-            link.clone()
-        } else {
-            println!("All scraped wallpapers are in history. Selecting a random one anyway.");
-            links.choose(&mut rng).context("No wallpaper links found at all")?.clone()
+    if candidates.is_empty() {
+        candidates = links;
+    }
+    candidates.shuffle(&mut rand::thread_rng());
+    for selected_url in candidates.into_iter().take(12) {
+        if !download_and_set_wallpaper(&selected_url, &wallpaper_dir)? {
+            continue;
         }
-    };
-
-    println!("Successfully selected wallpaper: {selected_url}");
-
-    // 5. Download and set wallpaper
-    download_and_set_wallpaper(&selected_url, &wallpaper_dir)?;
-
-    // 6. Update history
-    add_to_history(&mut history, selected_url, MAX_HISTORY);
-    save_history(&history_path, &history)?;
-
-    Ok(())
+        add_to_history(&mut history, selected_url, MAX_HISTORY);
+        save_history(&history_path, &history)?;
+        return Ok(());
+    }
+    Err(anyhow!("No candidate passed the dark 4K pixel check; wallpaper unchanged"))
 }
 
 fn load_history(path: &Path) -> Result<Vec<String>> {
@@ -147,10 +138,11 @@ fn get_wallpaper_links() -> Result<Vec<String>> {
     let resp = client
         .get(BASE_URL)
         .query(&[
-            ("q", "black"),
+            ("q", "id:2575"), // Exact black-background tag; pixels are checked after download.
             ("colors", "000000"),
             ("purity", "100"),
             ("atleast", "3840x2160"),
+            ("ratios", "16x9,16x10"),
             ("sorting", "random"),
         ])
         .send()
@@ -184,12 +176,11 @@ fn parse_wallpaper_links(body: &str) -> Result<Vec<String>> {
     Ok(links)
 }
 
-fn download_and_set_wallpaper(url: &str, wallpaper_dir: &Path) -> Result<()> {
+fn download_and_set_wallpaper(url: &str, wallpaper_dir: &Path) -> Result<bool> {
     fs::create_dir_all(wallpaper_dir).context("Failed to create wallpaper directory")?;
 
     let file_name = url.split('/').next_back().unwrap_or("wallpaper.png");
     let file_path = wallpaper_dir.join(file_name);
-    let temp_path = wallpaper_dir.join(".download");
 
     println!("Downloading wallpaper to {}...", file_path.display());
 
@@ -204,18 +195,16 @@ fn download_and_set_wallpaper(url: &str, wallpaper_dir: &Path) -> Result<()> {
         .context("Failed to download image")?
         .error_for_status()
         .context("Wallpaper download returned an error")?;
-    let mut file = fs::File::create(&temp_path).context("Failed to create image file")?;
-    resp.copy_to(&mut file)
+    let mut download = tempfile::NamedTempFile::new_in(wallpaper_dir)
+        .context("Failed to create temporary image file")?;
+    resp.copy_to(download.as_file_mut())
         .context("Failed to save image bytes")?;
-    drop(file);
-    if !is_supported_image(&temp_path)? {
-        let _ = fs::remove_file(&temp_path);
-        return Err(anyhow!("Wallpaper download is not a supported image"));
+    if !is_dark_4k_wallpaper(download.path()).unwrap_or(false) {
+        println!("Rejected image: not a decodable dark 4K landscape: {url}");
+        return Ok(false);
     }
-    if file_path.exists() {
-        fs::remove_file(&file_path).context("Failed to replace existing wallpaper file")?;
-    }
-    fs::rename(&temp_path, &file_path).context("Failed to finalize image file")?;
+    download.persist(&file_path).map_err(|error| error.error)
+        .context("Failed to finalize image file")?;
 
     println!("Setting wallpaper via COM IDesktopWallpaper interface...");
 
@@ -246,18 +235,39 @@ fn download_and_set_wallpaper(url: &str, wallpaper_dir: &Path) -> Result<()> {
     }
 
     println!("Wallpaper set successfully.");
-    Ok(())
+    Ok(true)
 }
 
-fn is_supported_image(path: &Path) -> Result<bool> {
-    let mut header = [0; 12];
-    fs::File::open(path)
-        .context("Failed to validate downloaded image")?
-        .read(&mut header)
-        .context("Failed to read downloaded image")?;
-    Ok(header.starts_with(b"\x89PNG\r\n\x1a\n")
-        || header.starts_with(b"\xff\xd8\xff")
-        || (header.starts_with(b"RIFF") && &header[8..] == b"WEBP"))
+fn is_dark_4k_wallpaper(path: &Path) -> Result<bool> {
+    let image = image::ImageReader::open(path)?
+        .with_guessed_format()?
+        .decode()
+        .context("Failed to decode wallpaper")?;
+    let (width, height) = (image.width(), image.height());
+    if width < 3840 || height < 2160
+        || u64::from(width) * 10 < u64::from(height) * 16
+        || u64::from(width) * 9 > u64::from(height) * 16
+    {
+        return Ok(false);
+    }
+    Ok(has_dark_pixels(&image.to_rgba8()))
+}
+
+fn has_dark_pixels(image: &image::RgbaImage) -> bool {
+    let count = u64::from(image.width()) * u64::from(image.height());
+    let (mut near_black, mut bright, mut total) = (0_u64, 0_u64, 0_u64);
+    for pixel in image.pixels() {
+        if pixel[3] != 255 {
+            return false; // Reject transparency to avoid renderer-dependent background colors.
+        }
+        // The brightest channel also catches saturated colors that look dark in grayscale.
+        let level = pixel[0].max(pixel[1]).max(pixel[2]);
+        near_black += u64::from(level <= 40);
+        bright += u64::from(level > 96);
+        total += u64::from(level);
+    }
+    count > 0 && near_black * 100 >= count * 85
+        && bright * 100 <= count * 5 && total <= count * 28
 }
 
 #[cfg(test)]
@@ -341,12 +351,87 @@ mod tests {
     }
 
     #[test]
-    fn validates_image_signatures() -> Result<()> {
+    fn rejects_bright_gray_colorful_and_transparent_images() {
+        for color in [[255, 255, 255, 255], [50, 50, 50, 255], [255, 0, 0, 255], [0, 0, 0, 0]] {
+            let image = image::RgbaImage::from_pixel(10, 10, image::Rgba(color));
+            assert!(!has_dark_pixels(&image));
+        }
+        assert!(!has_dark_pixels(&image::RgbaImage::new(0, 0)));
+    }
+
+    #[test]
+    fn allows_small_accents_but_rejects_large_bright_areas() {
+        let mut image = image::RgbaImage::from_pixel(10, 10, image::Rgba([0, 0, 0, 255]));
+        for x in 0..5 {
+            image.put_pixel(x, 0, image::Rgba([255, 255, 255, 255]));
+        }
+        assert!(has_dark_pixels(&image));
+        image.put_pixel(5, 0, image::Rgba([255, 255, 255, 255]));
+        assert!(!has_dark_pixels(&image));
+    }
+
+    #[test]
+    fn enforces_near_black_coverage_and_average_brightness() {
+        let mut image = image::RgbaImage::from_pixel(10, 10, image::Rgba([40, 40, 40, 255]));
+        assert!(!has_dark_pixels(&image));
+        for (index, pixel) in image.pixels_mut().enumerate() {
+            *pixel = image::Rgba(if index < 85 { [0, 0, 0, 255] } else { [80, 80, 80, 255] });
+        }
+        assert!(has_dark_pixels(&image));
+        image.put_pixel(0, 0, image::Rgba([80, 80, 80, 255]));
+        assert!(!has_dark_pixels(&image));
+    }
+
+    #[test]
+    fn decodes_pixels_and_checks_real_resolution_before_accepting() -> Result<()> {
         let temp_file = NamedTempFile::new()?;
+        let image = image::RgbaImage::from_pixel(3840, 2160, image::Rgba([0, 0, 0, 255]));
+        image.save_with_format(temp_file.path(), image::ImageFormat::Png)?;
+        assert!(is_dark_4k_wallpaper(temp_file.path())?);
+        let image = image::RgbaImage::from_pixel(3840, 2160, image::Rgba([255, 255, 255, 255]));
+        image.save_with_format(temp_file.path(), image::ImageFormat::Png)?;
+        assert!(!is_dark_4k_wallpaper(temp_file.path())?);
+        let image = image::RgbaImage::from_pixel(100, 100, image::Rgba([0, 0, 0, 255]));
+        image.save_with_format(temp_file.path(), image::ImageFormat::Png)?;
+        assert!(!is_dark_4k_wallpaper(temp_file.path())?);
         fs::write(temp_file.path(), b"\x89PNG\r\n\x1a\nrest")?;
-        assert!(is_supported_image(temp_file.path())?);
+        assert!(is_dark_4k_wallpaper(temp_file.path()).is_err());
         fs::write(temp_file.path(), b"<html>nope</html>")?;
-        assert!(!is_supported_image(temp_file.path())?);
+        assert!(is_dark_4k_wallpaper(temp_file.path()).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn bright_download_cannot_replace_the_existing_wallpaper() -> Result<()> {
+        use std::io::{Cursor, Read, Write};
+        use std::net::TcpListener;
+
+        let image = image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(
+            3840, 2160, image::Rgb([255, 255, 255]),
+        ));
+        let mut bytes = Vec::new();
+        image.write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)?;
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let url = format!("http://{}/bright.png", listener.local_addr()?);
+        let server = thread::spawn(move || -> Result<()> {
+            for missing_bytes in [0, 1] {
+                let (mut stream, _) = listener.accept()?;
+                stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+                let _ = stream.read(&mut [0; 4096])?;
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", bytes.len() + missing_bytes)?;
+                stream.write_all(&bytes)?;
+            }
+            Ok(())
+        });
+        let directory = tempfile::tempdir()?;
+        let current = directory.path().join("current.png");
+        fs::write(&current, b"previous wallpaper")?;
+        assert!(!download_and_set_wallpaper(&url, directory.path())?);
+        assert_eq!(fs::read_dir(directory.path())?.count(), 1);
+        assert!(download_and_set_wallpaper(&url, directory.path()).is_err());
+        server.join().expect("Test HTTP server panicked")?;
+        assert_eq!(fs::read(&current)?, b"previous wallpaper");
+        assert_eq!(fs::read_dir(directory.path())?.count(), 1);
         Ok(())
     }
 }
